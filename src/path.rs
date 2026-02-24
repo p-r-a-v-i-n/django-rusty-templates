@@ -39,17 +39,17 @@ pub fn construct_relative_path<'a>(
     match origin {
         Some(origin) => {
             let origin = Path::new(origin);
-            let path = match origin.parent() {
-                None if adjacent => Path::new(path).normalize(),
+            let path= match origin.parent() {
+                None if adjacent => Path::new(path).normalize().into_owned(),
                 None => {
                     return Err(RelativePathError::Outside {
                         at: at.into(),
-                        origin: origin.to_path_buf(),
+                        origin: origin.to_owned(),
                         template_path: path.to_string(),
                     });
                 }
                 Some(directory) => {
-                    let new_path = Path::join(directory, path).normalize();
+                    let new_path = Path::join(directory, path).normalize().into_owned();
                     if new_path.starts_with("../") {
                         return Err(RelativePathError::Outside {
                             at: at.into(),
