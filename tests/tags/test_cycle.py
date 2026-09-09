@@ -148,6 +148,22 @@ def test_named_cycle_references_share_state(assert_render):
     )
 
 
+def test_nested_named_cycles(assert_render):
+    assert_render(
+        template=(
+            '{% cycle "a" "b" as foo %}'
+            '{% cycle foo "c" as bar %}'
+            "{% cycle bar %}"
+            "{% cycle bar %}"
+            "{% cycle foo %}"
+            "{% cycle bar %}"
+            "{% cycle bar %}"
+        ),
+        context={},
+        expected="aacabcb",
+    )
+
+
 def test_named_cycle_sets_context_variable(assert_render):
     assert_render(
         template="{% cycle 'a' 'b' as current %}{{ current }}",
