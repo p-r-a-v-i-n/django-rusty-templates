@@ -900,15 +900,14 @@ pub enum ParseError {
         #[label("expected at least two arguments")]
         at: SourceSpan,
     },
-    #[error("Unknown named cycle '{name}'")]
+    #[error("Named cycle '{name}' does not exist")]
     #[diagnostic(help("Define the named cycle earlier using the 'as' form."))]
     UnknownNamedCycle {
         name: String,
-        #[label("unknown cycle")]
+        #[label("not defined")]
         at: SourceSpan,
     },
-    #[error("Invalid flag '{flag}' after cycle name")]
-    #[diagnostic(help("Only the 'silent' flag is allowed here."))]
+    #[error("Only 'silent' flag is allowed after cycle's name, not '{flag}'.")]
     InvalidCycleFlag {
         flag: String,
         #[label("invalid flag")]

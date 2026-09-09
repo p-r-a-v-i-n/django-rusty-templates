@@ -132,11 +132,11 @@ def test_unknown_named_cycle_error(assert_parse_error):
         template="{% cycle missing %}",
         django_message="No named cycles in template. 'missing' is not defined",
         rusty_message=snapshot("""\
-  × Unknown named cycle 'missing'
+  × Named cycle 'missing' does not exist
    ╭────
  1 │ {% cycle missing %}
    ·          ───┬───
-   ·             ╰── unknown cycle
+   ·             ╰── not defined
    ╰────
   help: Define the named cycle earlier using the 'as' form.
 """),
@@ -272,13 +272,12 @@ def test_invalid_cycle_flag_error(assert_parse_error):
             "Only 'silent' flag is allowed after cycle's name, not 'invalid_flag'."
         ),
         rusty_message=snapshot("""\
-  × Invalid flag 'invalid_flag' after cycle name
+  × Only 'silent' flag is allowed after cycle's name, not 'invalid_flag'.
    ╭────
  1 │ {% cycle 'a' 'b' 'c' as abc invalid_flag %}
    ·                             ──────┬─────
    ·                                   ╰── invalid flag
    ╰────
-  help: Only the 'silent' flag is allowed here.
 """),
     )
 
@@ -334,11 +333,11 @@ def test_unknown_named_cycle_after_definition_error(assert_parse_error):
         template=("{% cycle 'a' 'b' as existing %}{% cycle missing %}"),
         django_message="Named cycle 'missing' does not exist",
         rusty_message=snapshot("""\
-  × Unknown named cycle 'missing'
+  × Named cycle 'missing' does not exist
    ╭────
  1 │ {% cycle 'a' 'b' as existing %}{% cycle missing %}
    ·                                         ───┬───
-   ·                                            ╰── unknown cycle
+   ·                                            ╰── not defined
    ╰────
   help: Define the named cycle earlier using the 'as' form.
 """),
@@ -429,11 +428,11 @@ def test_unknown_named_cycle_inside_loop_error(assert_parse_error):
         ),
         django_message="Named cycle 'undefined' does not exist",
         rusty_message=snapshot("""\
-  × Unknown named cycle 'undefined'
+  × Named cycle 'undefined' does not exist
    ╭────
  1 │ {% cycle 'a' 'b' 'c' as cycler silent %}{% for item in items %}{% cycle undefined %}{{ cycler }}{% endfor %}
    ·                                                                         ────┬────
-   ·                                                                             ╰── unknown cycle
+   ·                                                                             ╰── not defined
    ╰────
   help: Define the named cycle earlier using the 'as' form.
 """),
