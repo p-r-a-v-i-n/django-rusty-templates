@@ -300,10 +300,11 @@ impl Context {
     }
 
     pub fn next_cycle_index(&mut self, id: CycleId, length: usize) -> usize {
-        let index = self.cycle_indices.entry(id).or_insert(0);
-        let current = *index;
-        *index = (current + 1) % length;
-        current
+        *self
+            .cycle_indices
+            .entry(id)
+            .and_modify(|index| *index = (*index + 1) % length)
+            .or_default()
     }
 }
 
