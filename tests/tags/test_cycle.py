@@ -87,11 +87,26 @@ def test_cycle_missing_argument_error(assert_parse_error):
         template="{% cycle %}",
         django_message="'cycle' tag requires at least two arguments",
         rusty_message=snapshot("""\
-  × Expected an argument
+  × Expected two or more arguments
    ╭────
  1 │ {% cycle %}
    ·         ▲
-   ·         ╰── here
+   ·         ╰── expected at least two arguments
+   ╰────
+"""),
+    )
+
+
+def test_cycle_single_literal_error(assert_parse_error):
+    assert_parse_error(
+        template='{% cycle "a" %}',
+        django_message="No named cycles in template. '\"a\"' is not defined",
+        rusty_message=snapshot("""\
+  × Expected two or more arguments
+   ╭────
+ 1 │ {% cycle "a" %}
+   ·          ─┬─
+   ·           ╰── expected at least two arguments
    ╰────
 """),
     )

@@ -40,8 +40,7 @@ use crate::filters::YesnoFilter;
 use dtl_lexer::common::{LexerError, get_all_at, text_content_at, translated_text_content_at};
 use dtl_lexer::core::{Lexer, TokenType};
 use dtl_lexer::tag::autoescape::{AutoescapeEnabled, AutoescapeError, lex_autoescape_argument};
-use dtl_lexer::tag::common::{TagElementToken, TagElementTokenType};
-use dtl_lexer::tag::cycle::{CycleArguments, CycleLexer, CycleLexerError};
+use dtl_lexer::tag::common::{TagElementLexer, TagElementToken, TagElementTokenType};
 use dtl_lexer::tag::forloop::{ForLexer, ForLexerError, ForLexerInError, ForTokenType};
 use dtl_lexer::tag::ifcondition::{
     IfConditionAtom, IfConditionLexer, IfConditionOperator, IfConditionTokenType,
@@ -727,11 +726,27 @@ pub struct FirstOf {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Cycle {
+pub struct SimpleCycle {
     pub id: CycleId,
     pub values: Vec<TagElement>,
-    pub asvar: Option<String>,
-    pub silent: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamedCycle {
+    pub cycle: SimpleCycle,
+    pub asvar: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SilentNamedCycle {
+    pub cycle: NamedCycle,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Cycle {
+    Simple(SimpleCycle),
+    Named(NamedCycle),
+    SilentNamed(SilentNamedCycle),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -880,11 +895,23 @@ pub enum ParseError {
         #[label("here")]
         at: SourceSpan,
     },
+    #[error("Expected two or more arguments")]
+    MissingCycleArguments {
+        #[label("expected at least two arguments")]
+        at: SourceSpan,
+    },
     #[error("Unknown named cycle '{name}'")]
     #[diagnostic(help("Define the named cycle earlier using the 'as' form."))]
     UnknownNamedCycle {
         name: String,
         #[label("unknown cycle")]
+        at: SourceSpan,
+    },
+    #[error("Invalid flag '{flag}' after cycle name")]
+    #[diagnostic(help("Only the 'silent' flag is allowed here."))]
+    InvalidCycleFlag {
+        flag: String,
+        #[label("invalid flag")]
         at: SourceSpan,
     },
     #[error(transparent)]
@@ -896,9 +923,6 @@ pub enum ParseError {
     #[error(transparent)]
     #[diagnostic(transparent)]
     LexerError(#[from] LexerError),
-    #[error(transparent)]
-    #[diagnostic(transparent)]
-    CycleLexerError(#[from] CycleLexerError),
     #[error(transparent)]
     #[diagnostic(transparent)]
     ForLexerError(#[from] ForLexerError),
@@ -1567,30 +1591,48 @@ impl<'t, 'py> Parser<'t, 'py> {
 
     fn parse_cycle(&mut self, parts: TagParts) -> Result<Cycle, ParseError> {
         let at = parts.at;
+        let tokens = TagElementLexer::new(self.template, parts).collect::<Result<Vec<_>, _>>()?;
 
-        let Some(arguments) = CycleLexer::new(self.template, parts).lex()? else {
-            return Err(ParseError::MissingArgument { at: at.into() });
-        };
-
-        match arguments {
-            CycleArguments::Reference { name } => {
-                let name_text = self.template.content(name);
+        match tokens.as_slice() {
+            [] => Err(ParseError::MissingCycleArguments { at: at.into() }),
+            [reference] if reference.token_type == TagElementTokenType::Variable => {
+                let name_text = self.template.content(reference.at);
 
                 self.named_cycles.get(name_text).cloned().ok_or_else(|| {
                     ParseError::UnknownNamedCycle {
                         name: name_text.to_string(),
-                        at: name.into(),
+                        at: reference.at.into(),
                     }
                 })
             }
+            [argument] => Err(ParseError::MissingCycleArguments {
+                at: argument.at.into(),
+            }),
+            tokens => {
+                let (tokens, name, silent) = match tokens {
+                    [values @ .., as_token, name_token, flag_token]
+                        if values.len() >= 2 && self.template.content(as_token.at) == "as" =>
+                    {
+                        let flag = self.template.content(flag_token.at);
 
-            CycleArguments::Definition {
-                values: tokens,
-                name,
-                silent,
-            } => {
-                let mut values = Vec::new();
-                let asvar = name.map(|name_at| self.template.content(name_at).to_string());
+                        if flag != "silent" {
+                            return Err(ParseError::InvalidCycleFlag {
+                                flag: flag.to_string(),
+                                at: flag_token.at.into(),
+                            });
+                        }
+
+                        (values, Some(name_token.at), true)
+                    }
+                    [values @ .., as_token, name_token]
+                        if values.len() >= 2 && self.template.content(as_token.at) == "as" =>
+                    {
+                        (values, Some(name_token.at), false)
+                    }
+                    values => (values, None, false),
+                };
+
+                let mut values = Vec::with_capacity(tokens.len());
 
                 for token in tokens {
                     let value = token.parse(self)?;
@@ -1598,16 +1640,23 @@ impl<'t, 'py> Parser<'t, 'py> {
                 }
 
                 let id = CycleId(NEXT_CYCLE_ID.fetch_add(1, Ordering::Relaxed));
-                let cycle = Cycle {
-                    id,
-                    values,
+                let simple_cycle = SimpleCycle { id, values };
+
+                let Some(name) = name else {
+                    return Ok(Cycle::Simple(simple_cycle));
+                };
+                let asvar = self.template.content(name).to_string();
+                let named_cycle = NamedCycle {
+                    cycle: simple_cycle,
                     asvar: asvar.clone(),
-                    silent,
+                };
+                let cycle = if silent {
+                    Cycle::SilentNamed(SilentNamedCycle { cycle: named_cycle })
+                } else {
+                    Cycle::Named(named_cycle)
                 };
 
-                if let Some(name) = asvar {
-                    self.named_cycles.insert(name, cycle.clone());
-                }
+                self.named_cycles.insert(asvar, cycle.clone());
 
                 Ok(cycle)
             }
